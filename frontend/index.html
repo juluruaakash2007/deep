@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DeepShield — Intelligent Synthetic Media Detector</title>
+<meta name="description" content="DeepShield detects deepfakes, AI-generated images, and cloned voices using advanced AI. Free, instant, and explainable."/>
+<link rel="stylesheet" href="/static/css/design-system.css"/>
+<style>
+  body { display:flex; align-items:center; justify-content:center; min-height:100vh; overflow:hidden; }
+
+  /* Particle canvas */
+  #bg-canvas { position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .hero { position:relative; z-index:1; text-align:center; max-width:640px; padding:2rem; }
+  .hero__shield {
+    font-size:5rem; margin-bottom:1rem;
+    filter: drop-shadow(0 0 30px rgba(0,212,255,0.5));
+    animation: float 3s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
+
+  .hero h1 {
+    background: linear-gradient(135deg, #fff 0%, var(--cyan) 50%, var(--purple) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin-bottom:.5rem;
+  }
+  .hero__sub { font-size:1.1rem; color:var(--text-secondary); margin-bottom:2.5rem; line-height:1.7; }
+
+  .hero__actions { display:flex; gap:1rem; justify-content:center; flex-wrap:wrap; }
+
+  .features {
+    display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; margin-top:3rem;
+  }
+  .feature-pill {
+    background:rgba(13,13,31,0.6); border:1px solid var(--border);
+    border-radius:var(--radius-md); padding:.75rem 1rem;
+    font-size:.85rem; color:var(--text-secondary);
+    display:flex; align-items:center; gap:8px;
+  }
+  .feature-pill span { font-size:1.1rem; }
+
+  .glow-orb {
+    position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:0;
+  }
+  .orb1 { width:400px; height:400px; background:rgba(124,58,237,0.12); top:-100px; left:-100px; }
+  .orb2 { width:350px; height:350px; background:rgba(0,212,255,0.08); bottom:-80px; right:-80px; }
+</style>
+</head>
+<body>
+<div class="glow-orb orb1"></div>
+<div class="glow-orb orb2"></div>
+<canvas id="bg-canvas"></canvas>
+
+<div class="hero">
+  <div class="hero__shield">🛡️</div>
+  <h1>DeepShield</h1>
+  <p class="hero__sub">
+    AI-powered platform to detect deepfakes, synthetic images,<br/>
+    and cloned voices — with full explainability.
+  </p>
+  <div class="hero__actions">
+    <a href="/auth.html" class="btn btn--primary btn--lg">🚀 Get Started</a>
+    <a href="/api/docs" target="_blank" class="btn btn--secondary btn--lg">📖 API Docs</a>
+  </div>
+
+  <div class="features">
+    <div class="feature-pill"><span>🖼️</span> Image Deepfake Detection</div>
+    <div class="feature-pill"><span>🎬</span> Video Frame Analysis</div>
+    <div class="feature-pill"><span>🎵</span> Voice Clone Detection</div>
+    <div class="feature-pill"><span>🔥</span> Grad-CAM Heatmaps</div>
+    <div class="feature-pill"><span>📊</span> Analytics Dashboard</div>
+    <div class="feature-pill"><span>📄</span> PDF Reports</div>
+  </div>
+</div>
+
+<script>
+// Particle background
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+let W, H, particles = [];
+
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize(); window.addEventListener('resize', resize);
+
+for (let i = 0; i < 80; i++) {
+  particles.push({
+    x: Math.random()*1920, y: Math.random()*1080,
+    r: Math.random()*1.5+0.3,
+    vx: (Math.random()-0.5)*0.3, vy: (Math.random()-0.5)*0.3,
+    a: Math.random()
+  });
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  particles.forEach(p => {
+    p.x += p.vx; p.y += p.vy;
+    if(p.x<0)p.x=W; if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H; if(p.y>H)p.y=0;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(0,212,255,${p.a*0.4})`;
+    ctx.fill();
+  });
+  requestAnimationFrame(draw);
+}
+draw();
+
+// Redirect if already logged in
+if(localStorage.getItem('ds_token')) window.location.href='/dashboard.html';
+</script>
+</body>
+</html>

@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>DeepShield — Dashboard</title>
+<link rel="stylesheet" href="/static/css/design-system.css"/>
+<style>
+/* ── Layout ── */
+.dashboard-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.5rem; }
+@media(max-width:900px){ .dashboard-grid{grid-template-columns:1fr;} }
+
+/* ── Upload Zone ── */
+.upload-zone {
+  grid-column:1/-1;
+  border:2px dashed var(--border-bright);
+  border-radius:var(--radius-xl);
+  padding:3rem 2rem;
+  text-align:center;
+  cursor:pointer;
+  transition:all .3s;
+  position:relative;
+  overflow:hidden;
+}
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color:var(--cyan);
+  background:rgba(0,212,255,0.04);
+  box-shadow: var(--shadow-cyan);
+}
+.upload-zone__icon { font-size:3.5rem; margin-bottom:1rem; display:block; }
+.upload-zone h3 { margin-bottom:.5rem; }
+.upload-zone p  { font-size:.9rem; }
+#file-input { display:none; }
+
+/* Media type tabs */
+.media-tabs { display:flex; gap:.5rem; justify-content:center; margin-bottom:1.5rem; }
+.media-tab  {
+  padding:.5rem 1.4rem; border-radius:20px; border:1px solid var(--border);
+  background:transparent; color:var(--text-muted); cursor:pointer;
+  font-family:'Inter',sans-serif; font-weight:600; font-size:.85rem; transition:all .2s;
+}
+.media-tab.active { border-color:var(--cyan); color:var(--cyan); background:rgba(0,212,255,0.08); }
+
+/* ── Processing overlay ── */
+.processing-card {
+  grid-column:1/-1;
+  padding:3rem; text-align:center;
+}
+.processing-ring {
+  width:90px; height:90px; margin:0 auto 1.5rem;
+  border:3px solid var(--border);
+  border-top-color:var(--cyan);
+  border-radius:50%;
+  animation:spin 1s linear infinite;
+}
+.processing-steps { display:flex; flex-direction:column; gap:.5rem; max-width:300px; margin:.5rem auto 0; }
+.step { display:flex; align-items:center; gap:.75rem; font-size:.85rem; color:var(--text-muted); }
+.step.done { color:var(--green); } .step.active { color:var(--cyan); }
+
+/* ── Result Card ── */
+.result-header {
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:1.5rem;
+}
+.verdict { font-size:2rem; font-weight:900; font-family:'JetBrains Mono',monospace; }
+.confidence-section { margin:1rem 0; }
+.prob-row { display:flex; justify-content:space-between; font-size:.82rem; margin-bottom:4px; }
+
+/* Heatmap */
+.heatmap-img { width:100%; border-radius:var(--radius-md); margin-top:1rem; }
+.spectrogram-img { width:100%; border-radius:var(--radius-md); margin-top:1rem; }
+
+/* Timeline chart */
+#timeline-chart { width:100%; height:180px; }
+
+/* Result meta grid */
+.meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; margin:1rem 0; }
+.meta-item { background:var(--bg-surface); border-radius:var(--radius-sm); padding:.75rem; }
+.meta-item__label { font-size:.75rem; color:var(--text-muted); margin-bottom:2px; }
+.meta-item__value { font-size:.92rem; font-weight:600; font-family:'JetBrains Mono',monospace; }
+
+/* Explanation box */
+.explanation-box {
+  background:rgba(0,212,255,0.04); border:1px solid rgba(0,212,255,0.15);
+  border-radius:var(--radius-md); padding:1rem;
+  font-size:.88rem; line-height:1.7; color:var(--text-secondary);
+}
+
+/* Waveform canvas */
+#waveform-canvas { width:100%; height:80px; }
+</style>
+</head>
+<body>
+<!-- NAVBAR -->
+<nav class="navbar">
+  <a href="/dashboard.html" class="navbar__brand">🛡️ <span>Deep</span>Shield</a>
+  <div class="navbar__links">
+    <a href="/dashboard.html" class="navbar__link" data-page="dashboard">🔍 <span>Detect</span></a>
+    <a href="/history.html"  class="navbar__link" data-page="history">📋 <span>History</span></a>
+    <a href="/analytics.html" class="navbar__link" data-page="analytics">📊 <span>Analytics</span></a>
+  </div>
+  <div class="navbar__user">
+    <span id="nav-username" class="text-sm"></span>
+    <div class="avatar" id="nav-avatar">U</div>
+    <button class="btn btn--ghost btn--sm" id="logout-btn">Logout</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-title">
+    <h1>🔍 Media Detection</h1>
+    <p>Upload an image, video, or audio file to scan for synthetic content.</p>
+  </div>
+
+  <!-- Media type selector -->
+  <div class="media-tabs">
+    <button class="media-tab active" data-type="image" id="tab-image">🖼️ Image</button>
+    <button class="media-tab" data-type="video" id="tab-video">🎬 Video</button>
+    <button class="media-tab" data-type="audio" id="tab-audio">🎵 Audio</button>
+  </div>
+
+  <div class="dashboard-grid" id="main-grid">
+    <!-- Upload zone -->
+    <div class="upload-zone card" id="upload-zone">
+      <div class="scanning-overlay hidden" id="scan-overlay"></div>
+      <span class="upload-zone__icon" id="upload-icon">🖼️</span>
+      <h3>Drop your file here</h3>
+      <p class="mt-1 text-muted" id="upload-hint">Supports JPG, PNG, WebP, BMP</p>
+      <div class="mt-3 flex gap-2 justify-content" style="justify-content:center">
+        <label for="file-input" class="btn btn--primary">Choose File</label>
+        <button class="btn btn--secondary" id="demo-btn">🎲 Try Demo</button>
+      </div>
+      <input type="file" id="file-input"/>
+    </div>
+  </div>
+
+  <!-- Processing state (hidden by default) -->
+  <div class="card processing-card hidden" id="processing-card">
+    <div class="processing-ring"></div>
+    <h3 class="text-cyan">Analyzing Media...</h3>
+    <p class="mt-1" id="processing-msg">Sending to AI model</p>
+    <div class="processing-steps mt-3">
+      <div class="step active" id="step-upload">⬆️ Uploading file</div>
+      <div class="step" id="step-preprocess">⚙️ Preprocessing</div>
+      <div class="step" id="step-model">🤖 Running AI model</div>
+      <div class="step" id="step-explain">🔥 Generating explanation</div>
+      <div class="step" id="step-done">✅ Complete</div>
+    </div>
+  </div>
+
+  <!-- Results (hidden by default) -->
+  <div class="dashboard-grid hidden" id="results-section">
+    <!-- Left: Verdict -->
+    <div class="card p-3" id="result-main">
+      <div class="result-header">
+        <div>
+          <div class="text-sm text-muted mb-1">DETECTION RESULT</div>
+          <div class="verdict" id="result-verdict">—</div>
+        </div>
+        <div style="text-align:right">
+          <div id="result-risk-badge"></div>
+          <div class="text-xs text-muted mt-1" id="result-time"></div>
+        </div>
+      </div>
+
+      <div class="confidence-section">
+        <div class="prob-row">
+          <span class="text-red">Fake Probability</span>
+          <span class="font-mono text-red" id="fake-prob-val">—</span>
+        </div>
+        <div class="confidence-bar"><div class="confidence-bar__fill" id="fake-bar" style="width:0%;background:var(--red)"></div></div>
+        <div class="prob-row mt-1">
+          <span class="text-green">Real Probability</span>
+          <span class="font-mono text-green" id="real-prob-val">—</span>
+        </div>
+        <div class="confidence-bar"><div class="confidence-bar__fill" id="real-bar" style="width:0%;background:var(--green)"></div></div>
+      </div>
+
+      <div class="meta-grid">
+        <div class="meta-item"><div class="meta-item__label">Confidence</div><div class="meta-item__value text-cyan" id="r-confidence">—</div></div>
+        <div class="meta-item"><div class="meta-item__label">Media Type</div><div class="meta-item__value" id="r-type">—</div></div>
+        <div class="meta-item"><div class="meta-item__label">Model</div><div class="meta-item__value" id="r-model" style="font-size:.75rem;">—</div></div>
+        <div class="meta-item"><div class="meta-item__label">Process Time</div><div class="meta-item__value" id="r-time">—</div></div>
+      </div>
+
+      <div class="explanation-box" id="r-explanation">—</div>
+
+      <div class="flex gap-1 mt-3">
+        <button class="btn btn--primary btn--sm" id="download-pdf-btn">📄 Download PDF</button>
+        <button class="btn btn--secondary btn--sm" id="new-scan-btn">🔄 New Scan</button>
+      </div>
+    </div>
+
+    <!-- Right: Visual -->
+    <div class="card p-3" id="result-visual">
+      <h3 class="mb-2">Visual Analysis</h3>
+      <div id="visual-container">
+        <!-- Image heatmap / video timeline / audio spectrogram -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/js/api.js"></script>
+<script>
+if(!Auth.requireAuth()) throw '';
+initNavbar('dashboard');
+
+let currentType = 'image';
+let currentDetectionId = null;
+const hints = {
+  image: 'Supports JPG, PNG, WebP, BMP — up to 100MB',
+  video: 'Supports MP4, AVI, MOV, MKV — up to 100MB',
+  audio: 'Supports WAV, MP3, OGG, FLAC — up to 100MB',
+};
+const icons = { image:'🖼️', video:'🎬', audio:'🎵' };
+
+// Tab switching
+document.querySelectorAll('.media-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.media-tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    currentType = tab.dataset.type;
+    document.getElementById('upload-icon').textContent = icons[currentType];
+    document.getElementById('upload-hint').textContent = hints[currentType];
+    const fi = document.getElementById('file-input');
+    fi.accept = {image:'image/*',video:'video/*',audio:'audio/*'}[currentType];
+    resetUI();
+  });
+});
+
+// Drag & Drop
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if(file) handleFile(file);
+});
+zone.addEventListener('click', e => {
+  if(e.target.tagName!=='BUTTON'&&e.target.tagName!=='LABEL') document.getElementById('file-input').click();
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  if(e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+// Demo button — fetch a sample from picsum/generate
+document.getElementById('demo-btn').addEventListener('click', async () => {
+  if(currentType !== 'image') { toast('Demo only available for images','info'); return; }
+  toast('Fetching demo image...','info');
+  try {
+    const res  = await fetch('https://picsum.photos/400/400');
+    const blob = await res.blob();
+    const file = new File([blob], 'demo.jpg', {type:'image/jpeg'});
+    handleFile(file);
+  } catch { toast('Could not fetch demo image','error'); }
+});
+
+let _waitTimer = null;
+
+async function handleFile(file) {
+  showProcessing();
+  startWaitTimer();
+
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const result = await apiForm(`/detect/${currentType}`, fd);
+    stopWaitTimer();
+    if (!result) { toast('No response from server', 'error'); resetUI(); return; }
+    currentDetectionId = result.detection_id;
+    try {
+      showResults(result, currentType);
+    } catch(displayErr) {
+      console.error('showResults error:', displayErr);
+      toast('Result received but display error: ' + displayErr.message, 'warning');
+      resetUI();
+    }
+  } catch(e) {
+    stopWaitTimer();
+    toast('Detection failed: ' + e.message, 'error');
+    resetUI();
+  }
+}
+
+function showProcessing() {
+  document.getElementById('main-grid').classList.add('hidden');
+  document.getElementById('results-section').classList.add('hidden');
+  document.getElementById('processing-card').classList.remove('hidden');
+}
+
+function startWaitTimer() {
+  const msgEl = document.getElementById('processing-msg');
+  const stepsEl = document.querySelector('.processing-steps');
+  let elapsed = 0;
+
+  // Phase 1: animate through steps (3.5s)
+  const steps = ['step-upload','step-preprocess','step-model','step-explain','step-done'];
+  steps.forEach(s => { document.getElementById(s).className='step'; });
+  let stepIdx = 0;
+  const stepIv = setInterval(() => {
+    if(stepIdx > 0) document.getElementById(steps[stepIdx-1]).className='step done';
+    if(stepIdx < steps.length) {
+      document.getElementById(steps[stepIdx]).className='step active';
+      stepIdx++;
+    } else {
+      clearInterval(stepIv);
+    }
+  }, 700);
+
+  // Phase 2: after 4s, show elapsed time counter
+  _waitTimer = setInterval(() => {
+    elapsed++;
+    if(elapsed >= 4) {
+      msgEl.innerHTML = `⏳ Waiting for AI model response... <span style="color:var(--cyan);font-family:monospace">${elapsed}s</span>`;
+      if(elapsed === 15) msgEl.innerHTML += '<br/><small style="color:var(--text-muted)">HF model warming up — first request takes ~20-30s</small>';
+      if(elapsed === 40) msgEl.innerHTML += '<br/><small style="color:var(--orange)">Taking longer than usual...</small>';
+    }
+  }, 1000);
+}
+
+function stopWaitTimer() {
+  if(_waitTimer) { clearInterval(_waitTimer); _waitTimer = null; }
+  document.getElementById('processing-msg').textContent = '✅ Analysis complete!';
+}
+
+function showResults(r, type) {
+  document.getElementById('processing-card').classList.add('hidden');
+  document.getElementById('results-section').classList.remove('hidden');
+
+  const color = {FAKE:'var(--red)',REAL:'var(--green)',SUSPICIOUS:'var(--orange)'}[r.prediction];
+  document.getElementById('result-verdict').textContent = r.prediction;
+  document.getElementById('result-verdict').style.color = color;
+
+  document.getElementById('result-risk-badge').innerHTML = riskBadge(r.risk_level);
+  document.getElementById('result-time').textContent = formatDate(new Date().toISOString());
+  document.getElementById('fake-prob-val').textContent = (r.fake_probability*100).toFixed(1)+'%';
+  document.getElementById('real-prob-val').textContent = (r.real_probability*100).toFixed(1)+'%';
+  setTimeout(()=>{
+    document.getElementById('fake-bar').style.width = (r.fake_probability*100)+'%';
+    document.getElementById('real-bar').style.width = (r.real_probability*100)+'%';
+  },100);
+  document.getElementById('r-confidence').textContent = r.confidence+'%';
+  document.getElementById('r-type').innerHTML = mediaBadge(type);
+  document.getElementById('r-model').textContent = r.model_used||'HF API';
+  document.getElementById('r-time').textContent = r.processing_time+'s';
+  document.getElementById('r-explanation').textContent = r.ai_explanation;
+
+  // Visual panel
+  const vc = document.getElementById('visual-container');
+  vc.innerHTML = '';
+
+  if(type==='image' && r.heatmap_b64) {
+    vc.innerHTML = `<p class="text-sm text-muted mb-2">🔥 Grad-CAM Activation Heatmap</p>
+      <img class="heatmap-img" src="data:image/png;base64,${r.heatmap_b64}" alt="Heatmap"/>
+      ${r.face_detected!==undefined?`<p class="text-xs text-muted mt-2">${r.face_detected?'✅ Face detected':'⚠️ No face detected — texture analysis used'}</p>`:''}`;
+  } else if(type==='video' && r.timeline_data?.length) {
+    vc.innerHTML = `<p class="text-sm text-muted mb-2">📈 Frame-by-Frame Confidence Timeline</p>
+      <canvas id="timeline-chart"></canvas>
+      <p class="text-xs text-muted mt-2">Frames analyzed: ${r.frames_analyzed}</p>`;
+    drawTimeline(r.timeline_data);
+  } else if(type==='audio') {
+    let html = `<p class="text-sm text-muted mb-2">🎵 Waveform Preview</p>
+      <canvas id="waveform-canvas"></canvas>`;
+    if(r.spectrogram_b64) html += `<p class="text-sm text-muted mt-3 mb-2">🎨 Mel Spectrogram</p>
+      <img class="spectrogram-img" src="data:image/png;base64,${r.spectrogram_b64}" alt="Spectrogram"/>`;
+    html += `<p class="text-xs text-muted mt-2">Duration: ${r.duration_seconds}s</p>`;
+    vc.innerHTML = html;
+    if(r.waveform_data?.length) drawWaveform(r.waveform_data);
+  } else {
+    vc.innerHTML = '<p class="text-muted text-center mt-3">No visual data available.</p>';
+  }
+
+  // PDF button
+  document.getElementById('download-pdf-btn').onclick = () => {
+    if(!currentDetectionId){toast('No detection ID','warning');return;}
+    window.open(`http://localhost:8000/report/${currentDetectionId}?token=${Auth.getToken()}`,'_blank');
+  };
+}
+
+function drawTimeline(data) {
+  const canvas = document.getElementById('timeline-chart');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.parentElement.clientWidth;
+  canvas.height = 180;
+  const w = canvas.width, h = canvas.height;
+  const pad = 30;
+  ctx.clearRect(0,0,w,h);
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const y=pad+(h-2*pad)*i/4;
+    ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke();
+  }
+
+  // Line
+  const pts = data.map((d,i)=>({x:pad+(w-2*pad)*i/(data.length-1||1),y:pad+(h-2*pad)*(1-d.confidence/100)}));
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  const grad = ctx.createLinearGradient(0,0,w,0);
+  grad.addColorStop(0,'#7c3aed'); grad.addColorStop(1,'#00d4ff');
+  ctx.strokeStyle=grad; ctx.lineWidth=2.5; ctx.lineJoin='round'; ctx.stroke();
+
+  // Dots
+  pts.forEach((p,i)=>{
+    const col = {FAKE:'#ef4444',REAL:'#10b981',SUSPICIOUS:'#f59e0b'}[data[i].prediction]||'#888';
+    ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2);
+    ctx.fillStyle=col; ctx.fill();
+  });
+
+  // Labels
+  ctx.fillStyle='rgba(136,136,187,0.7)'; ctx.font='10px JetBrains Mono';
+  ctx.fillText('100%',2,pad+4); ctx.fillText('0%',2,h-pad+4);
+}
+
+function drawWaveform(data) {
+  const canvas = document.getElementById('waveform-canvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.parentElement.clientWidth;
+  canvas.height = 80;
+  const w=canvas.width, h=canvas.height, mid=h/2;
+  ctx.clearRect(0,0,w,h);
+  const barW = w/data.length;
+  const grad = ctx.createLinearGradient(0,0,w,0);
+  grad.addColorStop(0,'#7c3aed'); grad.addColorStop(1,'#00d4ff');
+  ctx.fillStyle=grad;
+  data.forEach((v,i)=>{
+    const bh = Math.abs(v)*(mid-2);
+    ctx.fillRect(i*barW, mid-bh, barW-0.5, bh*2);
+  });
+}
+
+function resetUI() {
+  document.getElementById('processing-card').classList.add('hidden');
+  document.getElementById('results-section').classList.add('hidden');
+  document.getElementById('main-grid').classList.remove('hidden');
+  document.getElementById('file-input').value='';
+}
+document.getElementById('new-scan-btn').addEventListener('click', resetUI);
+
+// PDF token approach - add token to URL
+const origOpenReport = document.getElementById('download-pdf-btn').onclick;
+</script>
+</body>
+</html>

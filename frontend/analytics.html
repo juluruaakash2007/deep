@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>DeepShield — Analytics</title>
+<link rel="stylesheet" href="/static/css/design-system.css"/>
+<style>
+.analytics-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.5rem; }
+@media(max-width:900px){ .analytics-grid{grid-template-columns:1fr;} }
+
+.chart-card { padding:1.5rem; }
+.chart-card h3 { margin-bottom:1.25rem; color:var(--text-secondary); font-size:.95rem; }
+canvas.chart { width:100% !important; }
+
+/* Donut chart */
+.donut-wrap { display:flex; align-items:center; gap:2rem; }
+.donut-legend { display:flex; flex-direction:column; gap:.75rem; }
+.legend-item { display:flex; align-items:center; gap:.6rem; font-size:.85rem; }
+.legend-dot { width:10px;height:10px;border-radius:50%;flex-shrink:0; }
+
+/* Horizontal bar */
+.hbar-item { display:flex; align-items:center; gap:.75rem; margin-bottom:.75rem; }
+.hbar-label { width:80px; font-size:.82rem; color:var(--text-muted); flex-shrink:0; }
+.hbar-track { flex:1; height:8px; background:var(--bg-surface); border-radius:4px; overflow:hidden; }
+.hbar-fill   { height:100%; border-radius:4px; transition:width 1s ease; }
+.hbar-val    { width:45px; text-align:right; font-size:.82rem; font-family:'JetBrains Mono',monospace; }
+
+/* Accuracy gauge */
+.gauge-wrap { text-align:center; }
+.gauge-val  { font-size:3rem; font-weight:900; font-family:'JetBrains Mono',monospace; color:var(--cyan); }
+.gauge-label{ font-size:.85rem; color:var(--text-muted); }
+
+/* Activity heatmap */
+.heatmap-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+.heatmap-cell {
+  height:18px; border-radius:3px; background:var(--bg-surface);
+  transition:background .3s; cursor:default;
+}
+.heatmap-cell:hover { outline:1px solid var(--cyan); }
+
+/* Top files table */
+.top-table { width:100%; border-collapse:collapse; }
+.top-table td { padding:.6rem .5rem; font-size:.85rem; border-bottom:1px solid var(--border); }
+.top-table td:last-child { text-align:right; font-family:'JetBrains Mono',monospace; }
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <a href="/dashboard.html" class="navbar__brand">🛡️ <span>Deep</span>Shield</a>
+  <div class="navbar__links">
+    <a href="/dashboard.html" class="navbar__link" data-page="dashboard">🔍 <span>Detect</span></a>
+    <a href="/history.html"  class="navbar__link" data-page="history">📋 <span>History</span></a>
+    <a href="/analytics.html" class="navbar__link" data-page="analytics">📊 <span>Analytics</span></a>
+  </div>
+  <div class="navbar__user">
+    <span id="nav-username" class="text-sm"></span>
+    <div class="avatar" id="nav-avatar">U</div>
+    <button class="btn btn--ghost btn--sm" id="logout-btn">Logout</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-title flex items-center justify-between">
+    <div><h1>📊 Analytics</h1><p>Insights and trends from your detection history.</p></div>
+    <button class="btn btn--secondary btn--sm" id="refresh-btn">🔄 Refresh</button>
+  </div>
+
+  <!-- KPI row -->
+  <div class="stats-grid" id="kpi-row">
+    <div class="stat-card stat-card--cyan"><div class="stat-card__label">Total Scans</div><div class="stat-card__value" id="kpi-total">—</div></div>
+    <div class="stat-card stat-card--red"><div class="stat-card__label">Fakes Detected</div><div class="stat-card__value" id="kpi-fakes">—</div></div>
+    <div class="stat-card stat-card--green"><div class="stat-card__label">Real Media</div><div class="stat-card__value" id="kpi-real">—</div></div>
+    <div class="stat-card stat-card--purple"><div class="stat-card__label">Avg Confidence</div><div class="stat-card__value" id="kpi-conf">—</div></div>
+  </div>
+
+  <div class="analytics-grid">
+    <!-- Prediction split donut -->
+    <div class="card chart-card">
+      <h3>🎯 Prediction Distribution</h3>
+      <div class="donut-wrap">
+        <canvas id="donut-canvas" width="160" height="160" style="flex-shrink:0"></canvas>
+        <div class="donut-legend" id="donut-legend"></div>
+      </div>
+    </div>
+
+    <!-- Media type breakdown -->
+    <div class="card chart-card">
+      <h3>📁 Media Type Breakdown</h3>
+      <div id="media-bars"></div>
+    </div>
+
+    <!-- Daily scans line chart -->
+    <div class="card chart-card" style="grid-column:1/-1">
+      <h3>📈 Scan Activity (Last 7 Days)</h3>
+      <canvas id="line-canvas" height="180"></canvas>
+    </div>
+
+    <!-- Average confidence by type -->
+    <div class="card chart-card">
+      <h3>💡 Avg Confidence by Type</h3>
+      <div id="conf-bars"></div>
+    </div>
+
+    <!-- Recent high-risk -->
+    <div class="card chart-card">
+      <h3>🚨 High-Risk Detections</h3>
+      <div id="high-risk-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/js/api.js"></script>
+<script>
+if(!Auth.requireAuth()) throw '';
+initNavbar('analytics');
+
+async function loadAnalytics() {
+  try {
+    const data = await api('/analytics');
+    render(data);
+  } catch(e) {
+    toast('Failed to load analytics: '+e.message,'error');
+  }
+}
+
+function render(d) {
+  // KPIs
+  document.getElementById('kpi-total').textContent = d.total_scans ?? 0;
+  document.getElementById('kpi-fakes').textContent = d.fake_count  ?? 0;
+  document.getElementById('kpi-real').textContent  = d.real_count  ?? 0;
+  document.getElementById('kpi-conf').textContent  = (d.avg_confidence??0).toFixed(1)+'%';
+
+  // Donut
+  const counts = {
+    FAKE:       (d.fake_count||0),
+    REAL:       (d.real_count||0),
+    SUSPICIOUS: (d.suspicious_count||0),
+  };
+  drawDonut('donut-canvas', counts);
+  const donutLegend = document.getElementById('donut-legend');
+  const colors = {FAKE:'#ef4444',REAL:'#10b981',SUSPICIOUS:'#f59e0b'};
+  donutLegend.innerHTML = Object.entries(counts).map(([k,v])=>`
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${colors[k]}"></div>
+      <span style="color:${colors[k]};font-weight:600">${k}</span>
+      <span class="text-muted">${v}</span>
+    </div>`).join('');
+
+  // Media type bars
+  const mediaData = d.by_media_type || {};
+  const maxMedia = Math.max(...Object.values(mediaData),1);
+  const mediaColors = {image:'var(--cyan)',video:'var(--purple)',audio:'var(--pink)'};
+  document.getElementById('media-bars').innerHTML = Object.entries(mediaData).map(([t,v])=>`
+    <div class="hbar-item">
+      <div class="hbar-label">${icons[t]||''} ${t}</div>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${v/maxMedia*100}%;background:${mediaColors[t]||'var(--cyan)'}"></div></div>
+      <div class="hbar-val" style="color:${mediaColors[t]||'var(--cyan)'}">${v}</div>
+    </div>`).join('') || '<p class="text-muted text-sm">No data yet.</p>';
+
+  // Daily scans line
+  drawLine('line-canvas', d.daily_scans||[]);
+
+  // Confidence by type bars
+  const confData = d.avg_confidence_by_type || {};
+  const confColors = {image:'var(--cyan)',video:'var(--purple)',audio:'var(--pink)'};
+  document.getElementById('conf-bars').innerHTML = Object.entries(confData).map(([t,v])=>`
+    <div class="hbar-item">
+      <div class="hbar-label">${icons[t]||''} ${t}</div>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${v}%;background:${confColors[t]||'var(--cyan)'}"></div></div>
+      <div class="hbar-val" style="color:${confColors[t]||'var(--cyan)'}">${v.toFixed(1)}%</div>
+    </div>`).join('') || '<p class="text-muted text-sm">No data yet.</p>';
+
+  // High risk list
+  const hi = d.high_risk_recent || [];
+  document.getElementById('high-risk-list').innerHTML = hi.length
+    ? hi.slice(0,6).map(item=>`
+        <div class="flex items-center justify-between" style="padding:.5rem 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div class="text-sm" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.filename}</div>
+            <div class="text-xs text-muted">${formatDate(item.created_at)}</div>
+          </div>
+          <div class="flex gap-1 items-center">
+            <span class="badge badge--fake">${item.risk_level}</span>
+            <span class="font-mono text-sm text-red">${item.confidence}%</span>
+          </div>
+        </div>`).join('')
+    : '<p class="text-muted text-sm">No high-risk detections yet.</p>';
+}
+
+const icons={image:'🖼️',video:'🎬',audio:'🎵'};
+
+function drawDonut(id, counts) {
+  const canvas = document.getElementById(id);
+  const ctx = canvas.getContext('2d');
+  const W=160,H=160,cx=W/2,cy=H/2,R=65,r=38;
+  ctx.clearRect(0,0,W,H);
+  const total=Object.values(counts).reduce((a,b)=>a+b,0)||1;
+  const colors={FAKE:'#ef4444',REAL:'#10b981',SUSPICIOUS:'#f59e0b'};
+  let angle=-Math.PI/2;
+  Object.entries(counts).forEach(([k,v])=>{
+    const sweep=v/total*Math.PI*2;
+    ctx.beginPath();ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,angle,angle+sweep);
+    ctx.fillStyle=colors[k]; ctx.fill();
+    angle+=sweep;
+  });
+  // Hole
+  ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.fillStyle='#0d0d1f'; ctx.fill();
+  // Center text
+  ctx.fillStyle='#f0f0ff'; ctx.font='bold 22px JetBrains Mono'; ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(total,cx,cy);
+}
+
+function drawLine(id, daily) {
+  const canvas=document.getElementById(id);
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  canvas.width=canvas.parentElement.clientWidth;
+  canvas.height=180;
+  const w=canvas.width,h=canvas.height,pad=36;
+  ctx.clearRect(0,0,w,h);
+
+  if(!daily.length){
+    ctx.fillStyle='rgba(136,136,187,.4)';ctx.font='14px Inter';ctx.textAlign='center';
+    ctx.fillText('No data yet — start scanning!',w/2,h/2);return;
+  }
+
+  const maxV=Math.max(...daily.map(d=>d.count),1);
+  const pts=daily.map((d,i)=>({
+    x:pad+(w-2*pad)*i/(daily.length-1||1),
+    y:pad+(h-2*pad)*(1-d.count/maxV),
+    label:d.date, count:d.count
+  }));
+
+  // Grid lines
+  ctx.strokeStyle='rgba(255,255,255,.04)';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=pad+(h-2*pad)*i/4;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke();}
+
+  // Gradient fill
+  const area=ctx.createLinearGradient(0,0,0,h);
+  area.addColorStop(0,'rgba(0,212,255,.18)');area.addColorStop(1,'rgba(0,212,255,0)');
+  ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.lineTo(pts[pts.length-1].x,h-pad);ctx.lineTo(pts[0].x,h-pad);ctx.closePath();
+  ctx.fillStyle=area;ctx.fill();
+
+  // Line
+  const grad=ctx.createLinearGradient(0,0,w,0);
+  grad.addColorStop(0,'#7c3aed');grad.addColorStop(1,'#00d4ff');
+  ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.strokeStyle=grad;ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.stroke();
+
+  // Dots + labels
+  pts.forEach(p=>{
+    ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);
+    ctx.fillStyle='#00d4ff';ctx.fill();
+    ctx.fillStyle='rgba(136,136,187,.8)';ctx.font='10px Inter';ctx.textAlign='center';
+    const lbl=(p.label||'').slice(5);// MM-DD
+    ctx.fillText(lbl,p.x,h-pad+14);
+    if(p.count>0){ctx.fillStyle='#f0f0ff';ctx.fillText(p.count,p.x,p.y-10);}
+  });
+}
+
+document.getElementById('refresh-btn').addEventListener('click',loadAnalytics);
+loadAnalytics();
+</script>
+</body>
+</html>

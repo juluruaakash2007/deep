@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>DeepShield — History</title>
+<link rel="stylesheet" href="/static/css/design-system.css"/>
+<style>
+.filters { display:flex; gap:.75rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+.filter-select {
+  background:var(--bg-surface); border:1px solid var(--border);
+  color:var(--text-primary); border-radius:var(--radius-md);
+  padding:.5rem .9rem; font-family:'Inter',sans-serif; font-size:.85rem;
+  cursor:pointer;
+}
+.filter-select:focus { outline:none; border-color:var(--cyan); }
+
+.history-table { width:100%; border-collapse:collapse; }
+.history-table th {
+  text-align:left; padding:.75rem 1rem;
+  font-size:.78rem; font-weight:600; text-transform:uppercase;
+  letter-spacing:.5px; color:var(--text-muted);
+  border-bottom:1px solid var(--border);
+}
+.history-table td {
+  padding:.85rem 1rem; border-bottom:1px solid var(--border);
+  font-size:.88rem; vertical-align:middle;
+}
+.history-table tr:hover td { background:rgba(255,255,255,0.02); }
+.history-table tr:last-child td { border-bottom:none; }
+
+.filename-cell { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.confidence-cell { font-family:'JetBrains Mono',monospace; font-size:.85rem; }
+
+/* Pagination */
+.pagination { display:flex; align-items:center; justify-content:center; gap:.5rem; margin-top:1.5rem; }
+.page-btn {
+  width:36px; height:36px; border-radius:var(--radius-sm);
+  border:1px solid var(--border); background:var(--bg-surface);
+  color:var(--text-secondary); cursor:pointer; font-size:.85rem;
+  transition:all .2s;
+}
+.page-btn:hover { border-color:var(--cyan); color:var(--cyan); }
+.page-btn.active { background:var(--cyan); color:#000; border-color:var(--cyan); font-weight:700; }
+.page-btn:disabled { opacity:.3; cursor:not-allowed; }
+
+/* Empty state */
+.empty-state { text-align:center; padding:4rem 2rem; }
+.empty-state__icon { font-size:4rem; margin-bottom:1rem; opacity:.4; }
+
+/* Detail modal */
+.modal-backdrop {
+  position:fixed; inset:0; background:rgba(0,0,0,.7); backdrop-filter:blur(4px);
+  z-index:200; display:flex; align-items:center; justify-content:center; padding:1rem;
+}
+.modal {
+  background:var(--bg-card); border:1px solid var(--border-bright);
+  border-radius:var(--radius-xl); padding:2rem; max-width:600px; width:100%;
+  max-height:85vh; overflow-y:auto;
+}
+.modal h2 { margin-bottom:1.5rem; }
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <a href="/dashboard.html" class="navbar__brand">🛡️ <span>Deep</span>Shield</a>
+  <div class="navbar__links">
+    <a href="/dashboard.html" class="navbar__link" data-page="dashboard">🔍 <span>Detect</span></a>
+    <a href="/history.html"  class="navbar__link" data-page="history">📋 <span>History</span></a>
+    <a href="/analytics.html" class="navbar__link" data-page="analytics">📊 <span>Analytics</span></a>
+  </div>
+  <div class="navbar__user">
+    <span id="nav-username" class="text-sm"></span>
+    <div class="avatar" id="nav-avatar">U</div>
+    <button class="btn btn--ghost btn--sm" id="logout-btn">Logout</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-title flex items-center justify-between">
+    <div><h1>📋 Detection History</h1><p>All your past scans — filterable and downloadable.</p></div>
+    <span class="badge badge--image" id="total-badge">—</span>
+  </div>
+
+  <div class="filters">
+    <select class="filter-select" id="filter-type">
+      <option value="">All Media</option>
+      <option value="image">🖼️ Image</option>
+      <option value="video">🎬 Video</option>
+      <option value="audio">🎵 Audio</option>
+    </select>
+    <select class="filter-select" id="filter-prediction">
+      <option value="">All Results</option>
+      <option value="FAKE">🔴 Fake</option>
+      <option value="REAL">🟢 Real</option>
+      <option value="SUSPICIOUS">🟡 Suspicious</option>
+    </select>
+    <button class="btn btn--ghost btn--sm" id="refresh-btn">🔄 Refresh</button>
+  </div>
+
+  <div class="card" style="overflow:hidden">
+    <div id="history-body">
+      <div class="empty-state">
+        <div class="empty-state__icon">📋</div>
+        <p>Loading history...</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-backdrop hidden" id="detail-modal">
+  <div class="modal">
+    <div class="flex items-center justify-between mb-2">
+      <h2>Detection Detail</h2>
+      <button class="btn btn--ghost btn--sm" id="close-modal">✕ Close</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/js/api.js"></script>
+<script>
+if(!Auth.requireAuth()) throw '';
+initNavbar('history');
+
+let currentPage = 1;
+const limit = 10;
+
+async function loadHistory() {
+  const type = document.getElementById('filter-type').value;
+  const pred = document.getElementById('filter-prediction').value;
+
+  let url = `/history?page=${currentPage}&limit=${limit}`;
+  if(type) url += `&media_type=${type}`;
+  if(pred) url += `&prediction=${pred}`;
+
+  document.getElementById('history-body').innerHTML = `<div class="empty-state"><div class="spinner" style="width:40px;height:40px;margin:2rem auto;border-width:3px"></div></div>`;
+
+  try {
+    const data = await api(url);
+    if (!data) throw new Error('No response from server');
+    document.getElementById('total-badge').textContent = `${data.total} scan${data.total!==1?'s':''}`;
+    try {
+      renderTable(data.items || []);
+    } catch(renderErr) {
+      console.error('renderTable error:', renderErr);
+      document.getElementById('history-body').innerHTML = `<div class="empty-state"><div class="empty-state__icon">⚠️</div><p>Display error: ${renderErr.message}</p></div>`;
+    }
+    renderPagination(data.page, data.pages);
+  } catch(e) {
+    document.getElementById('history-body').innerHTML = `<div class="empty-state"><div class="empty-state__icon">⚠️</div><p>${e.message}</p></div>`;
+  }
+}
+
+function renderTable(items) {
+  if (!items || !items.length) {
+    document.getElementById('history-body').innerHTML = `<div class="empty-state"><div class="empty-state__icon">📭</div><p>No detections found. <a href="/dashboard.html" class="text-cyan">Run your first scan →</a></p></div>`;
+    return;
+  }
+  const rows = items.map(item => {
+    const pred    = (item.prediction  || 'UNKNOWN').toUpperCase();
+    const mtype   = (item.media_type  || 'image').toLowerCase();
+    const risk    = (item.risk_level  || 'LOW').toUpperCase();
+    const conf    = typeof item.confidence === 'number' ? item.confidence : 0;
+    const fname   = item.filename    || 'Unknown file';
+    const itemId  = item.id          || '';
+    return `
+    <tr>
+      <td class="filename-cell" title="${fname}">${fname}</td>
+      <td>${mediaBadge(mtype)}</td>
+      <td><span class="badge badge--${pred.toLowerCase()}">${predictionIcon(pred)} ${pred}</span></td>
+      <td class="confidence-cell" style="color:${predictionColor(pred)}">${conf.toFixed(1)}%</td>
+      <td>${riskBadge(risk)}</td>
+      <td class="text-muted text-sm">${formatDate(item.created_at)}</td>
+      <td>
+        <div class="flex gap-1">
+          <button class="btn btn--ghost btn--sm" onclick="viewDetail('${itemId}')">👁️</button>
+          <button class="btn btn--ghost btn--sm" onclick="downloadReport('${itemId}')">📄</button>
+          <button class="btn btn--ghost btn--sm" style="color:var(--red)" onclick="deleteItem('${itemId}',this)">🗑️</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('history-body').innerHTML = `
+    <table class="history-table">
+      <thead><tr>
+        <th>File</th><th>Type</th><th>Result</th>
+        <th>Confidence</th><th>Risk</th><th>Date</th><th>Actions</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderPagination(page, pages) {
+  const el = document.getElementById('pagination');
+  if(pages<=1){el.innerHTML='';return;}
+  let html = `<button class="page-btn" ${page<=1?'disabled':''} onclick="gotoPage(${page-1})">‹</button>`;
+  for(let i=1;i<=pages;i++) html += `<button class="page-btn ${i===page?'active':''}" onclick="gotoPage(${i})">${i}</button>`;
+  html += `<button class="page-btn" ${page>=pages?'disabled':''} onclick="gotoPage(${page+1})">›</button>`;
+  el.innerHTML = html;
+}
+
+function gotoPage(p){ currentPage=p; loadHistory(); }
+
+async function viewDetail(id) {
+  document.getElementById('modal-body').innerHTML = '<div class="spinner" style="margin:2rem auto"></div>';
+  document.getElementById('detail-modal').classList.remove('hidden');
+  try {
+    const d = await api(`/history/${id}`);
+    const r = d.result || {};
+    document.getElementById('modal-body').innerHTML = `
+      <div class="meta-grid" style="margin-bottom:1rem">
+        <div class="meta-item"><div class="meta-item__label">Prediction</div><div class="meta-item__value" style="color:${predictionColor(d.prediction)}">${d.prediction}</div></div>
+        <div class="meta-item"><div class="meta-item__label">Confidence</div><div class="meta-item__value text-cyan">${d.confidence}%</div></div>
+        <div class="meta-item"><div class="meta-item__label">Risk Level</div><div class="meta-item__value">${d.risk_level}</div></div>
+        <div class="meta-item"><div class="meta-item__label">Date</div><div class="meta-item__value" style="font-size:.75rem">${formatDate(d.created_at)}</div></div>
+      </div>
+      <div class="explanation-box">${r.ai_explanation||'No explanation available.'}</div>
+      ${r.heatmap_b64?`<img src="data:image/png;base64,${r.heatmap_b64}" style="width:100%;border-radius:8px;margin-top:1rem"/>`: ''}
+      ${r.spectrogram_b64?`<img src="data:image/png;base64,${r.spectrogram_b64}" style="width:100%;border-radius:8px;margin-top:1rem"/>`: ''}
+      <div class="flex gap-1 mt-3">
+        <button class="btn btn--primary btn--sm" onclick="downloadReport('${id}')">📄 Download PDF</button>
+        <button class="btn btn--danger btn--sm" onclick="deleteItem('${id}',null,true)">🗑️ Delete</button>
+      </div>`;
+  } catch(e){ document.getElementById('modal-body').innerHTML=`<p class="text-red">${e.message}</p>`; }
+}
+
+function downloadReport(id) {
+  window.open(`http://localhost:8000/report/${id}?token=${Auth.getToken()}`,'_blank');
+}
+
+async function deleteItem(id, btn, closeModal=false) {
+  if(!confirm('Delete this detection?')) return;
+  try {
+    await api(`/history/${id}`, {method:'DELETE'});
+    toast('Detection deleted','success');
+    if(closeModal) document.getElementById('detail-modal').classList.add('hidden');
+    loadHistory();
+  } catch(e){ toast(e.message,'error'); }
+}
+
+document.getElementById('close-modal').addEventListener('click',()=>document.getElementById('detail-modal').classList.add('hidden'));
+document.getElementById('detail-modal').addEventListener('click',e=>{if(e.target.id==='detail-modal')e.currentTarget.classList.add('hidden');});
+document.getElementById('filter-type').addEventListener('change',()=>{currentPage=1;loadHistory();});
+document.getElementById('filter-prediction').addEventListener('change',()=>{currentPage=1;loadHistory();});
+document.getElementById('refresh-btn').addEventListener('click',loadHistory);
+
+// Handle PDF token
+const _orig = window.open;
+function pdfUrl(id){ return `http://localhost:8000/report/${id}`; }
+
+// Expose mediaBadge / riskBadge etc (already in api.js)
+loadHistory();
+</script>
+</body>
+</html>
