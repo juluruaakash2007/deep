@@ -3,7 +3,7 @@
  * All pages import this file first.
  */
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '';
 
 // ── Token management ─────────────────────────────────────────
 const Auth = {
