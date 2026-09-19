@@ -26,8 +26,11 @@ DNS_MAX_RETRY  = 3       # retries on ConnectError / DNS failure
 DNS_RETRY_BASE = 2.0     # exponential backoff base (2s, 4s, 8s)
 
 
-def _headers() -> dict:
-    return {"Authorization": f"Bearer {settings.HF_TOKEN}"}
+def _headers(content_type: str = "application/octet-stream") -> dict:
+    return {
+        "Authorization": f"Bearer {settings.HF_TOKEN}",
+        "Content-Type": content_type,
+    }
 
 
 def _check_dns() -> bool:
@@ -52,6 +55,7 @@ async def _call_with_dns_retry(
     client: httpx.AsyncClient,
     url: str,
     content: bytes,
+    content_type: str = "application/octet-stream",
 ) -> httpx.Response:
     """
     POST `content` to `url`, retrying on ConnectError with exponential backoff.
@@ -66,7 +70,7 @@ async def _call_with_dns_retry(
             await asyncio.sleep(wait)
 
         try:
-            return await client.post(url, headers=_headers(), content=content)
+            return await client.post(url, headers=_headers(content_type), content=content)
         except httpx.ConnectError as e:
             last_err = e
             logger.error(f"HF ConnectError (attempt {dns_attempt + 1}): {e}")
@@ -100,7 +104,7 @@ async def hf_image_classify(image_bytes: bytes, model: str | None = None) -> lis
     try:
         async with httpx.AsyncClient(timeout=HF_TIMEOUT) as client:
             for attempt in range(HF_MAX_RETRY + 1):
-                resp = await _call_with_dns_retry(client, url, image_bytes)
+                resp = await _call_with_dns_retry(client, url, image_bytes, "image/jpeg")
 
                 if resp.status_code == 200:
                     return resp.json()
@@ -149,7 +153,7 @@ async def hf_audio_classify(audio_bytes: bytes, model: str | None = None) -> lis
     try:
         async with httpx.AsyncClient(timeout=HF_TIMEOUT) as client:
             for attempt in range(HF_MAX_RETRY + 1):
-                resp = await _call_with_dns_retry(client, url, audio_bytes)
+                resp = await _call_with_dns_retry(client, url, audio_bytes, "audio/wav")
 
                 if resp.status_code == 200:
                     return resp.json()
@@ -181,8 +185,12 @@ async def hf_audio_classify(audio_bytes: bytes, model: str | None = None) -> lis
 
 def parse_image_result(api_response: list[dict]) -> tuple[float, float]:
     """
-    Parse HF image-classification response from capcheck/ai-image-detection.
-    Labels: "Fake" / "Real"
+    Parse HF image-classification response.
+    Handles label variants across supported models:
+      - dima806/deepfake_vs_real_image_detection  → "Real" / "Fake"
+      - prithivMLmods/Deep-Fake-Detector-v2-Model → "Deepfake" / "Realism"
+      - prithivMLmods/deepfake-detector-model-v1  → "Fake" / "Real"
+      - Wvolf/ViT_Deepfake_Detection              → "Real" / "Fake"
     Returns (fake_prob, real_prob).
     """
     fake_prob = 0.5
@@ -193,7 +201,7 @@ def parse_image_result(api_response: list[dict]) -> tuple[float, float]:
         score = float(item.get("score", 0.0))
         if any(k in label for k in ("fake", "deepfake", "manipulated", "artificial", "generated", "ai")):
             fake_prob = score
-        elif any(k in label for k in ("real", "authentic", "genuine", "original")):
+        elif any(k in label for k in ("real", "authentic", "genuine", "original", "realism")):
             real_prob = score
 
     total = fake_prob + real_prob
