@@ -28,10 +28,7 @@ async def lifespan(app: FastAPI):
     logger.info("🛡️  DeepShield starting up...")
     await connect_to_mongo()  # initializes JSON file store
 
-    if settings.DEMO_MODE:
-        logger.info("DEMO_MODE=true — using simulated AI predictions.")
-    else:
-        logger.info("HF API mode — inference runs on HuggingFace servers (no local downloads).")
+    logger.info("HF API mode — inference runs on HuggingFace servers (capcheck/ai-image-detection).")
 
     # Ensure reports directory exists
     os.makedirs(settings.REPORTS_DIR, exist_ok=True)
@@ -73,9 +70,8 @@ app.include_router(report.router)
 @app.get("/health", tags=["System"])
 async def health():
     return {
-        "status": "ok",
+        "status":  "ok",
         "version": settings.APP_VERSION,
-        "demo_mode": settings.DEMO_MODE,
     }
 
 
