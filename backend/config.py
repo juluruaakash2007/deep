@@ -25,12 +25,11 @@ class Settings(BaseSettings):
     DB_PATH: str = "deepshield_db.json"
 
     # AI — HuggingFace Inference API
-    DEMO_MODE: bool = False
-    HF_TOKEN: str = ""                          # required when DEMO_MODE=false
+    HF_TOKEN: str = ""           # required — set in Render env vars
     HF_API_BASE: str = "https://api-inference.huggingface.co/models"
-    IMAGE_MODEL_NAME: str = "capcheck/ai-image-detection"
+    IMAGE_MODEL_NAME: str = "capcheck/ai-image-detection"   # ViT-Base, CIFAKE-trained
     AUDIO_MODEL_NAME: str = "HamedAGH/deepfake-audio-detection"
-    VIDEO_MODEL: str = "frame_api"              # sends frames to image model
+    VIDEO_MODEL: str = "frame_api"   # sends frames to image model
 
     # File Upload
     UPLOAD_MAX_SIZE_MB: int = 100
