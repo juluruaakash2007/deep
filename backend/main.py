@@ -28,7 +28,14 @@ async def lifespan(app: FastAPI):
     logger.info("🛡️  DeepShield starting up...")
     await connect_to_mongo()  # initializes JSON file store
 
-    logger.info("HF API mode — inference runs on HuggingFace servers (capcheck/ai-image-detection).")
+    # DNS connectivity probe — warns early if HF is unreachable
+    from utils.hf_api import _check_dns
+    if _check_dns():
+        logger.info("✅ HF API reachable — inference runs on HuggingFace servers (capcheck/ai-image-detection).")
+    else:
+        logger.warning("⚠️  HF API DNS probe FAILED — api-inference.huggingface.co could not be resolved. "
+                       "Detection requests will retry automatically but may fail. "
+                       "Check that HF_TOKEN is set and Render has outbound internet access.")
 
     # Ensure reports directory exists
     os.makedirs(settings.REPORTS_DIR, exist_ok=True)
@@ -37,6 +44,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("DeepShield shutting down...")
     await close_mongo_connection()
+
 
 
 # ─── App ────────────────────────────────────────────────────────────────────
