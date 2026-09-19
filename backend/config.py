@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # AI — HuggingFace Inference API
     HF_TOKEN: str = ""           # required — set in Render env vars
-    HF_API_BASE: str = "https://api-inference.huggingface.co/models"
+    HF_API_BASE: str = "https://router.huggingface.co/hf-inference/models"
     IMAGE_MODEL_NAME: str = "capcheck/ai-image-detection"   # ViT-Base, CIFAKE-trained
     AUDIO_MODEL_NAME: str = "HamedAGH/deepfake-audio-detection"
     VIDEO_MODEL: str = "frame_api"   # sends frames to image model

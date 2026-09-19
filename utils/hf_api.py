@@ -19,7 +19,7 @@ from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
-HF_HOST        = "api-inference.huggingface.co"
+HF_HOST        = "router.huggingface.co"  # new endpoint (api-inference.huggingface.co is decommissioned)
 HF_TIMEOUT     = 60.0   # seconds — HF cold-start can take ~20s
 HF_MAX_RETRY   = 2       # retries on HF 503 (model loading)
 DNS_MAX_RETRY  = 3       # retries on ConnectError / DNS failure
